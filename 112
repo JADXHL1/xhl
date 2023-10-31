@@ -1,0 +1,75 @@
+import hashlib
+import requests
+import datetime
+import binascii
+import concurrent.futures
+import os
+
+session = requests.Session()
+
+def save_to_txt(content):
+    file_name = 'unengraved_contents-2.txt'
+    hex_file_name = 'hex_2.txt'
+    file_path = os.path.join(os.getcwd(), file_name)
+    hex_file_path = os.path.join(os.getcwd(), hex_file_name)
+
+    with open(file_path, 'a', encoding='utf-8') as file, open(hex_file_path, 'a', encoding='utf-8') as hex_file:
+        file.write(content + '\n')
+        hex_content = binascii.hexlify(content.encode()).decode()
+        hex_file.write(hex_content + '\n')
+
+    print(f"文件已保存在目录: {file_path}")
+    print(f"十六进制输出已保存在目录: {hex_file_path}\n")
+
+def query_content(content):
+    content = "data:," + content
+    sha256_hash = hashlib.sha256(content.encode()).hexdigest()
+
+    url = f"https://eth-script-indexer-eca25c4cf43b.herokuapp.com/api/ethscriptions/exists/{sha256_hash}"
+
+    try:
+        response = session.get(url)
+
+        if response.status_code == 200:
+            result = response.json()
+            if result['result']:
+                owner = result['ethscription']['current_owner']
+                creator = result['ethscription']['creator']
+                creation_timestamp = result['ethscription']['creation_timestamp']
+
+                # 转换时间格式为易读形式
+                creation_timestamp = datetime.datetime.strptime(creation_timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
+
+                formatted_output = (f"内容: {content}\n"
+                                    f"状态: 铭文内容已被铭刻。\n"
+                                    f"所有者: {owner}\n"
+                                    f"创作者: {creator}\n"
+                                    f"创建时间: {creation_timestamp}\n")
+
+                print(f"\n{formatted_output}\n原始输出: {result}\n")
+
+            else:
+                hex_content = binascii.hexlify(content.encode()).decode()
+                formatted_output = (f"内容: {content}\n"
+                                    f"状态: 铭文内容尚未被铭刻。\n"
+                                    f"包含data:的铭文文本的十六进制输出为: {hex_content}\n")
+
+                save_to_txt(content)
+                print(f"\n{formatted_output}\n原始输出: {result}\n")
+        else:
+            print(f"\n无法获取 {content} 的数据，请检查您的输入。\n")
+    except requests.exceptions.RequestException as e:
+        print(f"\n发送请求时遇到错误: {e}\n")
+
+
+def process_contents(contents):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        executor.map(query_content, contents)
+
+
+if __name__ == '__main__':
+    inputs = ""
+    for number in range(5000, 10000):
+        inputs += '{"p":"erc-20","op":"mint","tick":"Facet","id":"' + str(number) + '","amt":"1000"}/'
+    contents = inputs.split('/')
+    process_contents(contents)
